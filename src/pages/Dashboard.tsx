@@ -1,7 +1,9 @@
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Plus, Hexagon, Users, Calendar, MoreHorizontal, ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
+import CreateProjectDialog from "@/components/CreateProjectDialog";
 
 // Mock project data
 const projects = [
@@ -35,6 +37,20 @@ const projects = [
 ];
 
 const Dashboard = () => {
+  const [userProjects, setUserProjects] = useState([]);
+  
+  useEffect(() => {
+    // Load projects from localStorage
+    const savedProjects = JSON.parse(localStorage.getItem("projects") || "[]");
+    setUserProjects(savedProjects);
+  }, []);
+  
+  const refreshProjects = () => {
+    const savedProjects = JSON.parse(localStorage.getItem("projects") || "[]");
+    setUserProjects(savedProjects);
+  };
+  
+  const allProjects = [...projects, ...userProjects];
   return (
     <div className="min-h-screen bg-gradient-soft">
       {/* Header */}
@@ -60,10 +76,7 @@ const Dashboard = () => {
                 <Users className="w-4 h-4 mr-2" />
                 Invite Team
               </Button>
-              <Button className="bg-gradient-honey text-primary-foreground shadow-soft transition-bounce hover:shadow-glow">
-                <Plus className="w-4 h-4 mr-2" />
-                New Project
-              </Button>
+              <CreateProjectDialog onProjectCreated={refreshProjects} />
             </div>
           </div>
         </div>
@@ -79,7 +92,7 @@ const Dashboard = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-muted-foreground text-sm">Active Projects</p>
-                    <p className="text-3xl font-bold text-primary">3</p>
+                    <p className="text-3xl font-bold text-primary">{allProjects.length}</p>
                   </div>
                   <div className="w-12 h-12 bg-gradient-honey rounded-2xl flex items-center justify-center">
                     <Hexagon className="w-6 h-6 text-primary-foreground" />
@@ -127,9 +140,9 @@ const Dashboard = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {projects.map((project) => (
+              {allProjects.map((project) => (
+                <Link key={project.id} to={`/project/${project.id}`}>
                 <Card 
-                  key={project.id} 
                   className="shadow-card transition-bounce hover:shadow-glow hover:scale-[1.02] cursor-pointer group animate-gentle-bounce"
                   style={{ animationDelay: `${project.id * 0.1}s` }}
                 >
@@ -192,24 +205,27 @@ const Dashboard = () => {
                     </div>
                   </CardContent>
                 </Card>
+                </Link>
               ))}
 
               {/* Add New Project Card */}
-              <Card className="shadow-soft transition-bounce hover:shadow-card hover:scale-[1.02] cursor-pointer border-2 border-dashed border-border group">
-                <CardContent className="p-6 flex flex-col items-center justify-center h-full min-h-[280px] text-center space-y-4">
-                  <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center group-hover:bg-gradient-honey group-hover:shadow-soft transition-smooth">
-                    <Plus className="w-8 h-8 text-muted-foreground group-hover:text-white transition-smooth" />
-                  </div>
-                  <div className="space-y-2">
-                    <h3 className="font-semibold group-hover:text-primary transition-smooth">
-                      Create New Project
-                    </h3>
-                    <p className="text-muted-foreground text-sm">
-                      Start organizing your next big idea
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+              <CreateProjectDialog onProjectCreated={refreshProjects}>
+                <Card className="shadow-soft transition-bounce hover:shadow-card hover:scale-[1.02] cursor-pointer border-2 border-dashed border-border group">
+                  <CardContent className="p-6 flex flex-col items-center justify-center h-full min-h-[280px] text-center space-y-4">
+                    <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center group-hover:bg-gradient-honey group-hover:shadow-soft transition-smooth">
+                      <Plus className="w-8 h-8 text-muted-foreground group-hover:text-white transition-smooth" />
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="font-semibold group-hover:text-primary transition-smooth">
+                        Create New Project
+                      </h3>
+                      <p className="text-muted-foreground text-sm">
+                        Start organizing your next big idea
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </CreateProjectDialog>
             </div>
           </div>
         </div>
