@@ -1,9 +1,29 @@
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Hexagon } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 import heroImage from "@/assets/bee-hero.jpg";
 
 const Welcome = () => {
+  const { user, loading } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!loading && user) {
+      navigate('/dashboard');
+    }
+  }, [user, loading, navigate]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-soft">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-soft">
       {/* Header */}
@@ -14,12 +34,14 @@ const Welcome = () => {
             <span className="text-xl font-semibold">BeeOrganized</span>
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="ghost" className="transition-smooth hover:bg-muted">
-              Sign In
-            </Button>
-            <Link to="/dashboard">
+            <Link to="/auth">
+              <Button variant="ghost" className="transition-smooth hover:bg-muted">
+                Entrar
+              </Button>
+            </Link>
+            <Link to="/auth">
               <Button className="bg-gradient-honey text-primary-foreground shadow-soft transition-smooth hover:shadow-glow">
-                Get Started
+                Começar
               </Button>
             </Link>
           </div>
@@ -45,12 +67,12 @@ const Welcome = () => {
               </div>
 
               <div className="flex flex-col sm:flex-row gap-4">
-                <Link to="/dashboard">
+                <Link to="/auth">
                   <Button 
                     size="lg" 
                     className="bg-gradient-honey text-primary-foreground shadow-card transition-bounce hover:shadow-glow hover:scale-105 w-full sm:w-auto"
                   >
-                    Start Organizing
+                    Começar a Organizar
                     <ArrowRight className="w-5 h-5 ml-2" />
                   </Button>
                 </Link>

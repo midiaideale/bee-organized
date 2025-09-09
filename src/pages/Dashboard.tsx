@@ -1,237 +1,342 @@
-import { useState, useEffect } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Plus, Hexagon, Users, Calendar, MoreHorizontal, ArrowLeft } from "lucide-react";
-import { Link } from "react-router-dom";
-import CreateProjectDialog from "@/components/CreateProjectDialog";
+import { useState, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Plus, Calendar, Users, CheckCircle2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from '@/hooks/use-toast';
 
-// Mock project data
-const projects = [
-  {
-    id: 1,
-    title: "Website Redesign",
-    description: "Complete overhaul of company website with modern design",
-    color: "bg-gradient-honey",
-    tasks: { todo: 8, inProgress: 3, done: 12 },
-    members: 4,
-    dueDate: "Dec 15"
-  },
-  {
-    id: 2,
-    title: "Mobile App",
-    description: "iOS and Android app development",
-    color: "bg-gradient-accent",
-    tasks: { todo: 15, inProgress: 6, done: 8 },
-    members: 6,
-    dueDate: "Jan 30"
-  },
-  {
-    id: 3,
-    title: "Brand Guidelines",
-    description: "Create comprehensive brand identity guide",
-    color: "bg-secondary",
-    tasks: { todo: 5, inProgress: 2, done: 7 },
-    members: 2,
-    dueDate: "Nov 28"
-  }
-];
+interface Project {
+  id: string;
+  title: string;
+  description?: string;
+  color: string;
+  created_at: string;
+  task_count?: number;
+  member_count?: number;
+}
 
-const Dashboard = () => {
-  const [userProjects, setUserProjects] = useState([]);
-  
+interface Organization {
+  id: string;
+  name: string;
+  logo_url?: string;
+}
+
+export default function Dashboard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [organization, setOrganization] = useState<Organization | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [newProjectTitle, setNewProjectTitle] = useState('');
+  const [newProjectDescription, setNewProjectDescription] = useState('');
+  const [newProjectColor, setNewProjectColor] = useState('#3b82f6');
+
   useEffect(() => {
-    // Load projects from localStorage
-    const savedProjects = JSON.parse(localStorage.getItem("projects") || "[]");
-    setUserProjects(savedProjects);
-  }, []);
-  
-  const refreshProjects = () => {
-    const savedProjects = JSON.parse(localStorage.getItem("projects") || "[]");
-    setUserProjects(savedProjects);
+    if (user) {
+      fetchDashboardData();
+    }
+  }, [user]);
+
+  const fetchDashboardData = async () => {
+    if (!user) return;
+
+    try {
+      // First check if user has an organization, if not create one
+      let { data: orgMember } = await supabase
+        .from('organization_members')
+        .select('organization_id, organizations(*)')
+        .eq('user_id', user.id)
+        .single();
+
+      if (!orgMember) {
+        // Create default organization for user
+        const { data: newOrg, error: orgError } = await supabase
+          .from('organizations')
+          .insert({
+            name: `Equipe de ${user.user_metadata?.full_name || user.email}`,
+          })
+          .select()
+          .single();
+
+        if (orgError) throw orgError;
+
+        // Add user as owner
+        await supabase
+          .from('organization_members')
+          .insert({
+            organization_id: newOrg.id,
+            user_id: user.id,
+            role: 'owner',
+          });
+
+        setOrganization(newOrg);
+      } else {
+        setOrganization(orgMember.organizations);
+      }
+
+      // Fetch projects
+      const { data: projectsData } = await supabase
+        .from('projects')
+        .select(`
+          id,
+          title,
+          description,
+          color,
+          created_at,
+          columns (
+            id,
+            tasks (id)
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (projectsData) {
+        const projectsWithCounts = projectsData.map(project => ({
+          ...project,
+          task_count: project.columns?.reduce((total: number, col: any) => total + (col.tasks?.length || 0), 0) || 0,
+          member_count: 1,
+        }));
+        setProjects(projectsWithCounts);
+      }
+    } catch (error: any) {
+      toast({
+        title: "Erro ao carregar dashboard",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
-  
-  const allProjects = [...projects, ...userProjects];
+
+  const createProject = async () => {
+    if (!newProjectTitle.trim() || !user || !organization) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('projects')
+        .insert({
+          title: newProjectTitle,
+          description: newProjectDescription,
+          color: newProjectColor,
+          organization_id: organization.id,
+          created_by: user.id,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setNewProjectTitle('');
+      setNewProjectDescription('');
+      setNewProjectColor('#3b82f6');
+      setShowCreateDialog(false);
+
+      toast({
+        title: "Projeto criado com sucesso!",
+        description: `"${newProjectTitle}" foi criado`,
+      });
+
+      navigate(`/project/${data.id}`);
+    } catch (error: any) {
+      toast({
+        title: "Erro ao criar projeto",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const getTimeAgo = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60));
+    
+    if (diffInHours < 24) {
+      return `${diffInHours}h atrás`;
+    } else {
+      const diffInDays = Math.floor(diffInHours / 24);
+      return `${diffInDays}d atrás`;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Carregando dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-soft">
+    <div className="p-6">
       {/* Header */}
-      <header className="px-6 py-6 border-b border-border/50 bg-card/50 backdrop-blur-sm">
-        <div className="max-w-6xl mx-auto">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Link to="/">
-                <Button variant="ghost" size="sm" className="transition-smooth hover:bg-muted">
-                  <ArrowLeft className="w-4 h-4" />
-                </Button>
-              </Link>
-              <div className="flex items-center gap-3">
-                <Hexagon className="w-8 h-8 text-primary" fill="currentColor" />
-                <div>
-                  <h1 className="text-2xl font-bold">Your Projects</h1>
-                  <p className="text-muted-foreground">Organize your work beautifully</p>
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
+          <p className="text-muted-foreground">
+            Bem-vindo de volta! Aqui está o que está acontecendo com seus projetos.
+          </p>
+        </div>
+
+        <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              Novo Projeto
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Criar Novo Projeto</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="project-title">Título do Projeto</Label>
+                <Input
+                  id="project-title"
+                  value={newProjectTitle}
+                  onChange={(e) => setNewProjectTitle(e.target.value)}
+                  placeholder="Digite o título do projeto..."
+                />
+              </div>
+              <div>
+                <Label htmlFor="project-description">Descrição (Opcional)</Label>
+                <Textarea
+                  id="project-description"
+                  value={newProjectDescription}
+                  onChange={(e) => setNewProjectDescription(e.target.value)}
+                  placeholder="Descreva o projeto..."
+                />
+              </div>
+              <div>
+                <Label htmlFor="project-color">Cor do Projeto</Label>
+                <div className="flex items-center space-x-2">
+                  <input
+                    id="project-color"
+                    type="color"
+                    value={newProjectColor}
+                    onChange={(e) => setNewProjectColor(e.target.value)}
+                    className="w-12 h-10 rounded border border-input"
+                  />
+                  <span className="text-sm text-muted-foreground">{newProjectColor}</span>
                 </div>
               </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <Button variant="outline" className="transition-smooth hover:bg-muted">
-                <Users className="w-4 h-4 mr-2" />
-                Invite Team
-              </Button>
-              <CreateProjectDialog onProjectCreated={refreshProjects} />
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="px-6 py-8">
-        <div className="max-w-6xl mx-auto">
-          {/* Stats Overview */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <Card className="shadow-soft transition-smooth hover:shadow-card">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-muted-foreground text-sm">Active Projects</p>
-                    <p className="text-3xl font-bold text-primary">{allProjects.length}</p>
-                  </div>
-                  <div className="w-12 h-12 bg-gradient-honey rounded-2xl flex items-center justify-center">
-                    <Hexagon className="w-6 h-6 text-primary-foreground" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card className="shadow-soft transition-smooth hover:shadow-card">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-muted-foreground text-sm">Total Tasks</p>
-                    <p className="text-3xl font-bold text-primary">67</p>
-                  </div>
-                  <div className="w-12 h-12 bg-gradient-accent rounded-2xl flex items-center justify-center">
-                    <Calendar className="w-6 h-6 text-accent-foreground" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-soft transition-smooth hover:shadow-card">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-muted-foreground text-sm">Completed</p>
-                    <p className="text-3xl font-bold text-primary">27</p>
-                  </div>
-                  <div className="w-12 h-12 bg-secondary rounded-2xl flex items-center justify-center">
-                    <Users className="w-6 h-6 text-secondary-foreground" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Projects Grid */}
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold">Recent Projects</h2>
-              <Button variant="ghost" className="text-muted-foreground hover:text-foreground">
-                View All
+              <Button onClick={createProject} className="w-full">
+                Criar Projeto
               </Button>
             </div>
+          </DialogContent>
+        </Dialog>
+      </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {allProjects.map((project) => (
-                <Link key={project.id} to={`/project/${project.id}`}>
-                <Card 
-                  className="shadow-card transition-bounce hover:shadow-glow hover:scale-[1.02] cursor-pointer group animate-gentle-bounce"
-                  style={{ animationDelay: `${project.id * 0.1}s` }}
-                >
-                  <CardContent className="p-6 space-y-4">
-                    {/* Project Header */}
-                    <div className="flex items-start justify-between">
-                      <div className={`w-12 h-12 ${project.color} rounded-2xl flex items-center justify-center shadow-soft group-hover:shadow-glow transition-smooth`}>
-                        <Hexagon className="w-6 h-6 text-white" fill="currentColor" />
-                      </div>
-                      <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-smooth">
-                        <MoreHorizontal className="w-4 h-4" />
-                      </Button>
-                    </div>
+      {/* Stats Overview */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Projetos Ativos</CardTitle>
+            <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{projects.length}</div>
+            <p className="text-xs text-muted-foreground">
+              +0 desde o último mês
+            </p>
+          </CardContent>
+        </Card>
 
-                    {/* Project Info */}
-                    <div className="space-y-2">
-                      <h3 className="text-lg font-semibold group-hover:text-primary transition-smooth">
-                        {project.title}
-                      </h3>
-                      <p className="text-muted-foreground text-sm line-clamp-2">
-                        {project.description}
-                      </p>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Progress</span>
-                        <span className="font-medium">
-                          {Math.round((project.tasks.done / (project.tasks.todo + project.tasks.inProgress + project.tasks.done)) * 100)}%
-                        </span>
-                      </div>
-                      <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-gradient-honey transition-smooth"
-                          style={{ 
-                            width: `${(project.tasks.done / (project.tasks.todo + project.tasks.inProgress + project.tasks.done)) * 100}%` 
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Project Stats */}
-                    <div className="flex items-center justify-between pt-2 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-1">
-                          <Users className="w-4 h-4" />
-                          <span>{project.members}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Calendar className="w-4 h-4" />
-                          <span>{project.dueDate}</span>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-medium text-foreground">
-                          {project.tasks.todo + project.tasks.inProgress + project.tasks.done} tasks
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                </Link>
-              ))}
-
-              {/* Add New Project Card */}
-              <CreateProjectDialog onProjectCreated={refreshProjects}>
-                <Card className="shadow-soft transition-bounce hover:shadow-card hover:scale-[1.02] cursor-pointer border-2 border-dashed border-border group">
-                  <CardContent className="p-6 flex flex-col items-center justify-center h-full min-h-[280px] text-center space-y-4">
-                    <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center group-hover:bg-gradient-honey group-hover:shadow-soft transition-smooth">
-                      <Plus className="w-8 h-8 text-muted-foreground group-hover:text-white transition-smooth" />
-                    </div>
-                    <div className="space-y-2">
-                      <h3 className="font-semibold group-hover:text-primary transition-smooth">
-                        Create New Project
-                      </h3>
-                      <p className="text-muted-foreground text-sm">
-                        Start organizing your next big idea
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </CreateProjectDialog>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total de Tarefas</CardTitle>
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {projects.reduce((total, project) => total + (project.task_count || 0), 0)}
             </div>
+            <p className="text-xs text-muted-foreground">
+              Distribuídas em {projects.length} projetos
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Membros da Equipe</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">1</div>
+            <p className="text-xs text-muted-foreground">
+              Só você por enquanto
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Projects Grid */}
+      <div>
+        <h2 className="text-xl font-semibold mb-4">Seus Projetos</h2>
+        {projects.length === 0 ? (
+          <Card className="border-dashed border-2 border-muted-foreground/25">
+            <CardContent className="flex flex-col items-center justify-center py-12">
+              <div className="text-center">
+                <h3 className="text-lg font-medium mb-2">Nenhum projeto ainda</h3>
+                <p className="text-muted-foreground mb-4">
+                  Crie seu primeiro projeto para começar a organizar suas tarefas.
+                </p>
+                <Button onClick={() => setShowCreateDialog(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Criar Primeiro Projeto
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {projects.map((project) => (
+              <Card 
+                key={project.id} 
+                className="cursor-pointer hover:shadow-lg transition-shadow"
+                onClick={() => navigate(`/project/${project.id}`)}
+              >
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div 
+                        className="w-4 h-4 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: project.color }}
+                      />
+                      <CardTitle className="text-lg line-clamp-1">{project.title}</CardTitle>
+                    </div>
+                  </div>
+                  {project.description && (
+                    <p className="text-sm text-muted-foreground line-clamp-2">
+                      {project.description}
+                    </p>
+                  )}
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between text-sm text-muted-foreground">
+                    <span>{project.task_count || 0} tarefas</span>
+                    <span>{getTimeAgo(project.created_at)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
-        </div>
-      </main>
+        )}
+      </div>
     </div>
   );
-};
-
-export default Dashboard;
+}
