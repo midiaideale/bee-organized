@@ -53,28 +53,16 @@ export default function Dashboard() {
         .from('organization_members')
         .select('organization_id, organizations(*)')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
       if (!orgMember) {
-        // Create default organization for user
+        // Create default organization for user using RPC
         const { data: newOrg, error: orgError } = await supabase
-          .from('organizations')
-          .insert({
-            name: `Equipe de ${user.user_metadata?.full_name || user.email}`,
-          })
-          .select()
-          .single();
+          .rpc('create_organization_with_owner', {
+            _name: `Equipe de ${user.user_metadata?.full_name || user.email}`,
+          });
 
         if (orgError) throw orgError;
-
-        // Add user as owner
-        await supabase
-          .from('organization_members')
-          .insert({
-            organization_id: newOrg.id,
-            user_id: user.id,
-            role: 'owner',
-          });
 
         setOrganization(newOrg);
       } else {

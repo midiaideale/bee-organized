@@ -228,7 +228,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      create_organization_with_owner: {
+        Args: { _logo_url?: string; _name: string }
+        Returns: {
+          created_at: string
+          id: string
+          logo_url: string | null
+          name: string
+          updated_at: string
+        }
+      }
     }
     Enums: {
       [_ in never]: never
