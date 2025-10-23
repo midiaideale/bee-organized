@@ -70,9 +70,14 @@ export default function NewProjectBoard() {
   }, [projectId, user]);
 
   const fetchProjectData = async () => {
-    if (!user || !projectId) return;
+    if (!user || !projectId) {
+      console.log('❌ ProjectBoard: Missing user or projectId', { user: !!user, projectId });
+      return;
+    }
 
     try {
+      console.log('🔄 ProjectBoard: Fetching project data for:', projectId);
+
       // Fetch project details
       const { data: projectData, error: projectError } = await supabase
         .from('projects')
@@ -80,8 +85,20 @@ export default function NewProjectBoard() {
         .eq('id', projectId)
         .single();
 
-      if (projectError) throw projectError;
+      console.log('📊 ProjectBoard: Project query result:', { projectData, projectError });
+
+      if (projectError) {
+        console.error('❌ ProjectBoard: Error fetching project:', projectError);
+        throw projectError;
+      }
+
+      if (!projectData) {
+        console.error('❌ ProjectBoard: No project data returned');
+        throw new Error('Projeto não encontrado');
+      }
+
       setProject(projectData);
+      console.log('✅ ProjectBoard: Project loaded:', projectData.title);
 
       // Fetch columns with tasks
       const { data: columnsData, error: columnsError } = await supabase
@@ -105,28 +122,43 @@ export default function NewProjectBoard() {
         .eq('project_id', projectId)
         .order('position');
 
-      if (columnsError) throw columnsError;
+      console.log('📋 ProjectBoard: Columns query result:', { count: columnsData?.length, columnsError });
+
+      if (columnsError) {
+        console.error('❌ ProjectBoard: Error fetching columns:', columnsError);
+        throw columnsError;
+      }
 
       // If no columns exist, create default ones
       if (!columnsData || columnsData.length === 0) {
+        console.log('⚠️ ProjectBoard: No columns found, creating defaults');
         await createDefaultColumns(projectId);
         await fetchProjectData(); // Refetch after creating columns
         return;
       }
 
-      setColumns(columnsData.map(col => ({
+      const processedColumns = columnsData.map(col => ({
         ...col,
         tasks: (col.tasks || []).map((task: any) => ({
           ...task,
           priority: task.priority as 'low' | 'medium' | 'high',
         }))
-      })));
+      }));
+
+      console.log('✅ ProjectBoard: Columns loaded successfully:', {
+        columnCount: processedColumns.length,
+        taskCount: processedColumns.reduce((acc, col) => acc + (col.tasks?.length || 0), 0)
+      });
+
+      setColumns(processedColumns);
     } catch (error: any) {
+      console.error('❌ ProjectBoard: Fatal error:', error);
       toast({
         title: "Erro ao carregar projeto",
-        description: error.message,
+        description: error.message || 'Erro desconhecido ao carregar o projeto',
         variant: "destructive",
       });
+      setProject(null); // Clear project on error to show "not found" message
     } finally {
       setLoading(false);
     }
