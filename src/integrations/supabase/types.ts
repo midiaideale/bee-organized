@@ -237,7 +237,14 @@ export type Database = {
           name: string
           updated_at: string
         }
+        SetofOptions: {
+          from: "*"
+          to: "organizations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
+      try_to_jsonb: { Args: { txt: string }; Returns: Json }
     }
     Enums: {
       [_ in never]: never

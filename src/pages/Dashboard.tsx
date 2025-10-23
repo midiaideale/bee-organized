@@ -45,32 +45,70 @@ export default function Dashboard() {
   }, [user]);
 
   const fetchDashboardData = async () => {
-    if (!user) return;
+    if (!user) {
+      console.log('❌ Dashboard: No user available');
+      return;
+    }
 
     try {
-      // First check if user has an organization, if not create one
-      let { data: orgMember } = await supabase
+      setLoading(true);
+      console.log('🔄 Dashboard: Fetching data for user:', user.id);
+
+      // Fetch user's FIRST organization membership
+      const { data: orgMember, error: memberError } = await supabase
         .from('organization_members')
         .select('organization_id, organizations(*)')
         .eq('user_id', user.id)
-        .maybeSingle();
+        .limit(1)
+        .single();
 
-      if (!orgMember) {
+      console.log('📊 Dashboard: Organization member query result:', { orgMember, memberError });
+
+      let currentOrg: Organization | null = null;
+
+      if (memberError || !orgMember) {
+        console.log('⚠️ Dashboard: No organization found, creating new one');
+        
         // Create default organization for user using RPC
         const { data: newOrg, error: orgError } = await supabase
           .rpc('create_organization_with_owner', {
             _name: `Equipe de ${user.user_metadata?.full_name || user.email}`,
           });
 
-        if (orgError) throw orgError;
+        console.log('📦 Dashboard: Created new organization:', { newOrg, orgError });
 
+        if (orgError) {
+          console.error('❌ Dashboard: Error creating organization:', orgError);
+          throw orgError;
+        }
+
+        if (!newOrg) {
+          throw new Error('Failed to create organization - no data returned');
+        }
+
+        currentOrg = newOrg;
         setOrganization(newOrg);
       } else {
-        setOrganization(orgMember.organizations);
+        console.log('✅ Dashboard: Found existing organization:', orgMember.organizations);
+        
+        // Validate organization data
+        if (!orgMember.organizations) {
+          throw new Error('Organization data is missing from membership');
+        }
+
+        currentOrg = orgMember.organizations as Organization;
+        setOrganization(currentOrg);
       }
 
+      // Validate we have a valid organization before proceeding
+      if (!currentOrg || !currentOrg.id) {
+        throw new Error('No valid organization available');
+      }
+
+      console.log('🔍 Dashboard: Fetching projects for organization:', currentOrg.id);
+
       // Fetch projects
-      const { data: projectsData } = await supabase
+      const { data: projectsData, error: projectsError } = await supabase
         .from('projects')
         .select(`
           id,
@@ -83,7 +121,15 @@ export default function Dashboard() {
             tasks (id)
           )
         `)
+        .eq('organization_id', currentOrg.id)
         .order('created_at', { ascending: false });
+
+      console.log('📋 Dashboard: Projects query result:', { count: projectsData?.length, projectsError });
+
+      if (projectsError) {
+        console.error('❌ Dashboard: Error fetching projects:', projectsError);
+        throw projectsError;
+      }
 
       if (projectsData) {
         const projectsWithCounts = projectsData.map(project => ({
@@ -91,12 +137,14 @@ export default function Dashboard() {
           task_count: project.columns?.reduce((total: number, col: any) => total + (col.tasks?.length || 0), 0) || 0,
           member_count: 1,
         }));
+        console.log('✅ Dashboard: Successfully loaded all data');
         setProjects(projectsWithCounts);
       }
     } catch (error: any) {
+      console.error('❌ Dashboard: Fatal error:', error);
       toast({
         title: "Erro ao carregar dashboard",
-        description: error.message,
+        description: error.message || 'Erro desconhecido ao carregar o dashboard',
         variant: "destructive",
       });
     } finally {
